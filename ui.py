@@ -13,11 +13,15 @@ from langchain_community.retrievers import PineconeHybridSearchRetriever
 from langchain_community.embeddings import HuggingFaceEmbeddings
 import time
 from pinecone_text.sparse import BM25Encoder
-import json
+import os
 
+import nltk
+nltk.download('punkt_tab')
 # API keys remain the same
-OPENAI_API_KEY = "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"
-PINECONE_API_KEY = "pcsk_2AEUoT_83gGVJzz4VmTjJPpCpK4xHhWeZBftdSPVkNorsbXuxeDewCfSdDbCVEnVEEkciL"
+
+# Get the API keys from environment variables
+OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
+PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
 def debug_print_context(inputs):
     """Debug function to print context details."""
