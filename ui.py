@@ -17,9 +17,8 @@ import os
 
 import nltk
 nltk.download('punkt_tab')
-# API keys remain the same
 
-# Get the API keys from environment variables
+# API keys remain the same
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
@@ -31,8 +30,8 @@ def debug_print_context(inputs):
         context.append(doc.metadata)
     return inputs
 
-def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
-    """Modified to handle both main query and additional note."""
+def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories, top_k):
+    """Modified to handle both main query and additional note with custom top_k value."""
     prompt_template = """
     شما یک دستیار هوشمند و مفید هستید. با استفاده از متن زیر به پرسش مطرح‌شده با دقت، شفافیت، و به صورت کامل پاسخ دهید:
     1. پاسخ را **به زبان فارسی** ارائه دهید.
@@ -64,7 +63,8 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
         
         return vs.get_relevant_documents(
             query,
-            filter=filter_dict
+            filter=filter_dict,
+            top_k=top_k  # Use the custom top_k value
         )
 
     chain = (
@@ -81,8 +81,8 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
 
     return chain
 
-def initialize_chatbot():
-    """Initialize the chatbot with Pinecone index and embeddings."""
+def initialize_chatbot(top_k=40):
+    """Initialize the chatbot with Pinecone index and embeddings with custom top_k."""
     pc = Pinecone(api_key=PINECONE_API_KEY)
     INDEX_NAME = "persian-new"
 
@@ -96,41 +96,10 @@ def initialize_chatbot():
         embeddings=embeddings, 
         sparse_encoder=bm25_encoder, 
         index=index,
-        top_k=60
+        top_k=top_k  # Use the custom top_k value
     )
 
     return vectorstore
-
-# Streamlit page configuration
-st.set_page_config(
-    page_title="Persian Chatbot",
-    page_icon="🤖",
-    layout="wide",
-)
-
-# Custom CSS with added loading animation styles
-st.markdown("""
-    <style>
-        body { direction: rtl; text-align: right;}
-        h1, h2, h3, h4, h5, h6 { text-align: right; }
-        .st-emotion-cache-12fmjuu { display: none;}
-        p { font-size:25px !important; }
-        .loading-message {
-            text-align: center;
-            font-size: 20px;
-            margin: 20px;
-            padding: 20px;
-            background-color: #f0f2f6;
-            border-radius: 10px;
-        }
-        .stTextInput input, .stTextArea textarea {
-            font-size: 25px !important;
-        }
-        .st-af {
-            font-size: 1.1rem !important;
-        }
-    </style>
-""", unsafe_allow_html=True)
 
 def main():
     st.markdown("<h1 class='persian-text'>چت‌بات فارسی</h1>", unsafe_allow_html=True)
@@ -139,7 +108,28 @@ def main():
     if 'processing' not in st.session_state:
         st.session_state.processing = False
 
-    # Predefined categories
+    # Add search depth controls
+    st.markdown("### عمق جستجو")
+    col1, col2, col3 = st.columns(3)
+    
+    with col1:
+        simple_search = st.checkbox("جستجوی ساده")
+    with col2:
+        complex_search = st.checkbox("جستجوی پیچیده")
+    with col3:
+        deep_search = st.checkbox("جستجوی عمیق")
+
+    # Determine top_k based on selected search depth
+    if simple_search:
+        top_k = 25
+    elif complex_search:
+        top_k = 60
+    elif deep_search:
+        top_k = 100
+    else:
+        top_k = 40  # Default value
+
+    # Rest of the settings
     sub_cat = ['ALL','1995_NCRI', '1996_NCRI', '1997_NCRI', '1998_NCRI', '1999_NCRI', '2001_NCRI', '2002_NCRI', '2003_NCRI', '2004_NCRI', '2005_NCRI', '2006_NCRI', '2007_NCRI', '2008_NCRI', '2009_NCRI', '2010_NCRI', '2011_NCRI', '2012_NCRI', '2013_NCRI', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', 'PMOI', 'دفاتر كشورها قبل از 2003', 'كميسيونها قبل از 2003']
     cat = ['اطلاعیه ـ از 1995']
 
@@ -155,7 +145,7 @@ def main():
         default=[]
     )
 
-    # Two separate input fields
+    # Input fields
     main_query = st.text_area(
         "سؤال اصلی خود را اینجا وارد کنید:",
         height=100
@@ -166,11 +156,12 @@ def main():
         height=100
     )
 
-    # Initialize chatbot
-    if 'vectorstore' not in st.session_state:
+    # Initialize chatbot with current top_k value
+    if 'vectorstore' not in st.session_state or 'current_top_k' not in st.session_state or st.session_state.current_top_k != top_k:
         with st.spinner('در حال راه‌اندازی چت‌بات...'):
             try:
-                st.session_state.vectorstore = initialize_chatbot()
+                st.session_state.vectorstore = initialize_chatbot(top_k)
+                st.session_state.current_top_k = top_k
             except Exception as e:
                 st.error(f"خطا در راه‌اندازی chatbot: {e}")
                 return
@@ -189,45 +180,37 @@ def main():
             return
 
         try:
-            # Show loading spinner
             with st.spinner('لطفاً صبر کنید...'):
-                # Create progress bar
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
-                # Update progress for vector search
                 status_text.text("در حال جستجوی اطلاعات مرتبط...")
                 progress_bar.progress(33)
                 
-                # Create chatbot
                 chatbot = create_chatbot_retrieval_qa(
                     main_query,
                     additional_note,
                     st.session_state.vectorstore,
                     categories,
-                    sub_categories
+                    sub_categories,
+                    top_k
                 )
                 
-                # Update progress for processing
                 status_text.text("در حال پردازش اطلاعات...")
                 progress_bar.progress(66)
                 
-                # Get response
                 response = chatbot.invoke({
                     "main_question": main_query,
                     "additional_note": additional_note if additional_note else ""
                 })
                 
-                # Update progress for completion
                 status_text.text("در حال آماده‌سازی پاسخ...")
                 progress_bar.progress(100)
                 
-                # Clear progress indicators
-                time.sleep(0.5)  # Short delay for smooth transition
+                time.sleep(0.5)
                 progress_bar.empty()
                 status_text.empty()
 
-                # Display response
                 response_placeholder.markdown("**پاسخ:**")
                 response_placeholder.write(response)
 
