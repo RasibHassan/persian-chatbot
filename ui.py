@@ -176,7 +176,6 @@ def main():
                 return
 
     # Create placeholder for response
-    response_placeholder = st.empty()
 
     # Submit button
     if st.button("ارسال"):
@@ -187,6 +186,9 @@ def main():
         if not categories and not sub_categories:
             st.warning("لطفاً حداقل یک دسته‌بندی یا زیر دسته‌بندی را انتخاب کنید.")
             return
+        
+        
+        response_placeholder = st.empty()
 
         try:
             # Show loading spinner
