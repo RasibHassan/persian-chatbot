@@ -14,12 +14,12 @@ from langchain_community.embeddings import HuggingFaceEmbeddings
 import time
 from pinecone_text.sparse import BM25Encoder
 import os
-
+import json
 import nltk
 nltk.download('punkt_tab')
 # API keys remain the same
 
-# Get the API keys from environment variables
+# # Get the API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
@@ -29,6 +29,9 @@ def debug_print_context(inputs):
     context = []
     for doc in con:
         context.append(doc.metadata)
+    for i in context:
+        print(i["category"])
+        print(i["year"])
     return inputs
 
 def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
@@ -56,8 +59,9 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
 
     def filtered_retriever(query):
         filter_dict = {}
-        if categories:
-            filter_dict["category"] = {"$in": ['اطلاعیه ـ از 1995']}
+        if categories != ['ALL'] and categories != []:
+            if categories:
+                filter_dict["category"] = {"$in": categories}
         if sub_categories != ['ALL'] and sub_categories != []:
             if sub_categories:
                 filter_dict["year"] = {"$in": sub_categories}
@@ -132,6 +136,23 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+
+
+def get_selected_subfolders(selected_folders):
+    with open("folder_structure.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+    
+    if selected_folders==[]:
+        return ['ALL']
+    folder_dict = data[0]
+    subfolder_list = ['ALL']
+    for folder in selected_folders:
+        if folder in folder_dict:
+            subfolder_list.extend(folder_dict[folder])
+      # Add all subfolders to the list
+    return subfolder_list
+
+
 def main():
     st.markdown("<h1 class='persian-text'>چت‌بات فارسی</h1>", unsafe_allow_html=True)
 
@@ -140,8 +161,11 @@ def main():
         st.session_state.processing = False
 
     # Predefined categories
-    sub_cat = ['ALL','1995_NCRI', '1996_NCRI', '1997_NCRI', '1998_NCRI', '1999_NCRI', '2001_NCRI', '2002_NCRI', '2003_NCRI', '2004_NCRI', '2005_NCRI', '2006_NCRI', '2007_NCRI', '2008_NCRI', '2009_NCRI', '2010_NCRI', '2011_NCRI', '2012_NCRI', '2013_NCRI', '2014', '2015', '2016', '2017', '2018', '2019', '2020', '2021', '2022', '2023', '2024', 'PMOI', 'دفاتر كشورها قبل از 2003', 'كميسيونها قبل از 2003']
-    cat = ['اطلاعیه ـ از 1995']
+    
+    with open("folder_structure.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+# Extract main folder names
+    cat = list(data[0].keys()) 
 
     # Category selections
     categories = st.multiselect(
@@ -149,6 +173,9 @@ def main():
         cat,
         default=[]
     )
+    
+    sub_cat = get_selected_subfolders(categories)
+
     sub_categories = st.multiselect(
         "زیر دسته‌بندی را انتخاب کنید:",
         sub_cat,
@@ -176,10 +203,11 @@ def main():
                 return
 
     # Create placeholder for response
-    response_placeholder = st.empty()
 
     # Submit button
     if st.button("ارسال"):
+        response_placeholder = st.empty()
+
         if not main_query:
             st.warning("لطفاً سؤال اصلی خود را وارد کنید.")
             return
