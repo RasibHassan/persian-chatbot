@@ -32,6 +32,7 @@ def debug_print_context(inputs):
     for i in context:
         print(i["category"])
         print(i["year"])
+    print('length of context:', len(context))
     return inputs
 
 def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
@@ -85,7 +86,7 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
 
     return chain
 
-def initialize_chatbot():
+def initialize_chatbot(alpha=0.3, top_k=60):
     """Initialize the chatbot with Pinecone index and embeddings."""
     pc = Pinecone(api_key=PINECONE_API_KEY)
     INDEX_NAME = "persian-new"
@@ -96,11 +97,11 @@ def initialize_chatbot():
     bm25_encoder = BM25Encoder().load("full_bm25_values.json")
 
     vectorstore = PineconeHybridSearchRetriever(
-        alpha=0.3, 
+        alpha=alpha, 
         embeddings=embeddings, 
         sparse_encoder=bm25_encoder, 
         index=index,
-        top_k=60
+        top_k=top_k
     )
 
     return vectorstore
@@ -133,10 +134,22 @@ st.markdown("""
         .st-af {
             font-size: 1.1rem !important;
         }
+        .search-params {
+            background-color: #f0f2f6;
+            padding: 15px;
+            border-radius: 10px;
+            margin-bottom: 20px;
+        }
+        /* Fix for RTL slider issues */
+        .stSlider [data-baseweb="slider"] {
+            direction: ltr;
+        }
+        .stSlider [data-testid="stMarkdownContainer"] {
+            text-align: right;
+            direction: rtl;
+        }
     </style>
 """, unsafe_allow_html=True)
-
-
 
 def get_selected_subfolders(selected_folders):
     with open("folder_structure.json", "r", encoding="utf-8") as file:
@@ -152,21 +165,83 @@ def get_selected_subfolders(selected_folders):
       # Add all subfolders to the list
     return subfolder_list
 
-
 def main():
     st.markdown("<h1 class='persian-text'>چت‌بات فارسی</h1>", unsafe_allow_html=True)
 
-    # Initialize session state for loading
+    # Initialize session state for loading and search parameters
     if 'processing' not in st.session_state:
         st.session_state.processing = False
+    if 'alpha' not in st.session_state:
+        st.session_state.alpha = 0.3
+    if 'top_k' not in st.session_state:
+        st.session_state.top_k = 60
+    if 'vectorstore' not in st.session_state:
+        st.session_state.vectorstore = None
 
     # Predefined categories
-    
     with open("folder_structure.json", "r", encoding="utf-8") as file:
         data = json.load(file)
-# Extract main folder names
+    # Extract main folder names
     cat = list(data[0].keys()) 
 
+    # Search Parameters Section (collapsible)
+    with st.expander("تنظیمات جستجو (پیشرفته)", expanded=False):
+        st.markdown("<div class='search-params'>", unsafe_allow_html=True)
+        
+        # Define callback for alpha slider
+        def on_alpha_change():
+            st.session_state.vectorstore = None
+            
+        # Define callback for top_k slider
+        def on_top_k_change():
+            st.session_state.vectorstore = None
+        
+        # Use two columns with class for better RTL support
+        col1, col2 = st.columns(2)
+        
+        with col1:
+            st.markdown('<div class="stSlider">', unsafe_allow_html=True)
+            st.session_state.alpha = st.slider(
+                "نسبت جستجوی هیبریدی (alpha):",
+                min_value=0.0,
+                max_value=1.0,
+                value=st.session_state.alpha,
+                step=0.1,
+                help="مقدار بالاتر به معنای وزن بیشتر برای جستجوی معنایی است. مقدار کمتر وزن بیشتری به جستجوی کلیدواژه می‌دهد.",
+                key="alpha_slider",
+                on_change=on_alpha_change
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+        
+        with col2:
+            st.markdown('<div class="stSlider">', unsafe_allow_html=True)
+            st.session_state.top_k = st.slider(
+                "تعداد نتایج (top_k):",
+                min_value=10,
+                max_value=200,
+                value=st.session_state.top_k,
+                step=10,
+                help="تعداد نتایج مرتبطی که از پایگاه داده بازیابی می‌شود.",
+                key="top_k_slider",
+                on_change=on_top_k_change
+            )
+            st.markdown('</div>', unsafe_allow_html=True)
+            
+        st.markdown("</div>", unsafe_allow_html=True)
+
+    # Initialize chatbot if needed
+    if st.session_state.vectorstore is None:
+        with st.spinner('در حال راه‌اندازی چت‌بات...'):
+            try:
+                st.session_state.vectorstore = initialize_chatbot(
+                    alpha=st.session_state.alpha,
+                    top_k=st.session_state.top_k
+                )
+                st.success(f"پارامترهای جستجو: alpha={st.session_state.alpha}, top_k={st.session_state.top_k}")
+            except Exception as e:
+                st.error(f"خطا در راه‌اندازی chatbot: {e}")
+                return
+            
     # Category selections
     categories = st.multiselect(
         "دسته‌بندی را انتخاب کنید:",
@@ -193,16 +268,7 @@ def main():
         height=100
     )
 
-    # Initialize chatbot
-    if 'vectorstore' not in st.session_state:
-        with st.spinner('در حال راه‌اندازی چت‌بات...'):
-            try:
-                st.session_state.vectorstore = initialize_chatbot()
-            except Exception as e:
-                st.error(f"خطا در راه‌اندازی chatbot: {e}")
-                return
 
-    # Create placeholder for response
 
     # Submit button
     if st.button("ارسال"):
@@ -215,7 +281,6 @@ def main():
         if not categories and not sub_categories:
             st.warning("لطفاً حداقل یک دسته‌بندی یا زیر دسته‌بندی را انتخاب کنید.")
             return
-        
         
         response_placeholder = st.empty()
 
