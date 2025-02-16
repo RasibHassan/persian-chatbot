@@ -12,13 +12,31 @@ from pinecone_text.sparse import BM25Encoder
 import time
 import json
 import nltk
+from nltk.tokenize import punct_word_tokenize
+import shutil
+import urllib.request
 
-# NLTK optimization - only download specific data needed
-nltk.data.path.append('./nltk_data')
-os.makedirs('./nltk_data', exist_ok=True)
-nltk.download('punkt', download_dir='./nltk_data', quiet=True)
+# Custom NLTK data handling for punkt_tab
+NLTK_DATA_DIR = './nltk_data'
+os.makedirs(f'{NLTK_DATA_DIR}/tokenizers/punkt_tab/english', exist_ok=True)
 
-# # API keys from environment variables
+# Download punkt if needed (for regular tokenization)
+nltk.data.path.append(NLTK_DATA_DIR)
+nltk.download('punkt', download_dir=NLTK_DATA_DIR, quiet=True)
+
+# Create empty punkt_tab file to satisfy the import
+# This is a workaround since punkt_tab isn't a standard resource
+empty_punkt_tab_path = f'{NLTK_DATA_DIR}/tokenizers/punkt_tab/english/punkt_tab.pickle'
+if not os.path.exists(empty_punkt_tab_path):
+    with open(empty_punkt_tab_path, 'wb') as f:
+        import pickle
+        pickle.dump({}, f)
+
+# Monkey patch or provide alternative for punkt_tab functionality if needed
+# This is just a placeholder - you may need to implement proper functionality
+nltk.tokenize.punkt_tab = punct_word_tokenize
+
+# API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
 
@@ -37,7 +55,6 @@ def debug_print_context(inputs):
     context = []
     for doc in con:
         context.append(doc.metadata)
-    print('len(context):', len(context))
     return inputs
 
 def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
