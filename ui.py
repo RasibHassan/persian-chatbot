@@ -29,10 +29,7 @@ def debug_print_context(inputs):
     context = []
     for doc in con:
         context.append(doc.metadata)
-    for i in context:
-        print(i["category"])
-        print(i["year"])
-    print('length of context:', len(context))
+
     return inputs
 
 def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
