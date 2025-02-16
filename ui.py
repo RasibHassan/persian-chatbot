@@ -12,9 +12,8 @@ from pinecone_text.sparse import BM25Encoder
 import time
 import json
 import nltk
-from nltk.tokenize import punct_word_tokenize
-import shutil
-import urllib.request
+from nltk.tokenize import word_tokenize
+import pickle
 
 # Custom NLTK data handling for punkt_tab
 NLTK_DATA_DIR = './nltk_data'
@@ -25,16 +24,27 @@ nltk.data.path.append(NLTK_DATA_DIR)
 nltk.download('punkt', download_dir=NLTK_DATA_DIR, quiet=True)
 
 # Create empty punkt_tab file to satisfy the import
-# This is a workaround since punkt_tab isn't a standard resource
 empty_punkt_tab_path = f'{NLTK_DATA_DIR}/tokenizers/punkt_tab/english/punkt_tab.pickle'
 if not os.path.exists(empty_punkt_tab_path):
     with open(empty_punkt_tab_path, 'wb') as f:
-        import pickle
         pickle.dump({}, f)
 
-# Monkey patch or provide alternative for punkt_tab functionality if needed
-# This is just a placeholder - you may need to implement proper functionality
-nltk.tokenize.punkt_tab = punct_word_tokenize
+# Create a stub module to handle punkt_tab imports
+import sys
+from types import ModuleType
+
+class PunktTabModule(ModuleType):
+    def __getattr__(self, name):
+        if name == 'punkt_word_tokenize':
+            return word_tokenize
+        return ModuleType.__getattr__(self, name)
+        
+# Create a stub for nltk.tokenize.punkt_tab
+if 'nltk.tokenize.punkt_tab' not in sys.modules:
+    punkt_tab_module = PunktTabModule('punkt_tab')
+    sys.modules['nltk.tokenize.punkt_tab'] = punkt_tab_module
+    if not hasattr(nltk.tokenize, 'punkt_tab'):
+        nltk.tokenize.punkt_tab = punkt_tab_module
 
 # API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
