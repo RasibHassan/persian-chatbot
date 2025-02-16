@@ -1,63 +1,27 @@
 import streamlit as st
 import os
-import gc
-from functools import lru_cache
+import openai
+from langchain.chains import ConversationalRetrievalChain
+from langchain.prompts import PromptTemplate
+from langchain.text_splitter import RecursiveCharacterTextSplitter
 from langchain_openai import OpenAIEmbeddings, ChatOpenAI
 from langchain_core.runnables import RunnablePassthrough
 from langchain_core.prompts import ChatPromptTemplate
 from langchain_core.output_parsers import StrOutputParser
-from pinecone import Pinecone
+from pinecone import Pinecone, ServerlessSpec
 from langchain_community.retrievers import PineconeHybridSearchRetriever
-from pinecone_text.sparse import BM25Encoder
+from langchain_community.embeddings import HuggingFaceEmbeddings
 import time
+from pinecone_text.sparse import BM25Encoder
+import os
 import json
 import nltk
-from nltk.tokenize import word_tokenize
-import pickle
+nltk.download('punkt_tab')
+# API keys remain the same
 
-# Custom NLTK data handling for punkt_tab
-NLTK_DATA_DIR = './nltk_data'
-os.makedirs(f'{NLTK_DATA_DIR}/tokenizers/punkt_tab/english', exist_ok=True)
-
-# Download punkt if needed (for regular tokenization)
-nltk.data.path.append(NLTK_DATA_DIR)
-nltk.download('punkt', download_dir=NLTK_DATA_DIR, quiet=True)
-
-# Create empty punkt_tab file to satisfy the import
-empty_punkt_tab_path = f'{NLTK_DATA_DIR}/tokenizers/punkt_tab/english/punkt_tab.pickle'
-if not os.path.exists(empty_punkt_tab_path):
-    with open(empty_punkt_tab_path, 'wb') as f:
-        pickle.dump({}, f)
-
-# Create a stub module to handle punkt_tab imports
-import sys
-from types import ModuleType
-
-class PunktTabModule(ModuleType):
-    def __getattr__(self, name):
-        if name == 'punkt_word_tokenize':
-            return word_tokenize
-        return ModuleType.__getattr__(self, name)
-        
-# Create a stub for nltk.tokenize.punkt_tab
-if 'nltk.tokenize.punkt_tab' not in sys.modules:
-    punkt_tab_module = PunktTabModule('punkt_tab')
-    sys.modules['nltk.tokenize.punkt_tab'] = punkt_tab_module
-    if not hasattr(nltk.tokenize, 'punkt_tab'):
-        nltk.tokenize.punkt_tab = punkt_tab_module
-
-# API keys from environment variables
+# # Get the API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 PINECONE_API_KEY = os.getenv("PINECONE_API_KEY")
-
-@lru_cache(maxsize=1)
-def load_folder_structure():
-    with open("folder_structure.json", "r", encoding="utf-8") as file:
-        return json.load(file)
-
-@lru_cache(maxsize=1)
-def load_bm25_encoder():
-    return BM25Encoder().load("full_bm25_values.json")
 
 def debug_print_context(inputs):
     """Debug function to print context details."""
@@ -65,9 +29,11 @@ def debug_print_context(inputs):
     context = []
     for doc in con:
         context.append(doc.metadata)
+
     return inputs
 
 def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub_categories):
+    """Modified to handle both main query and additional note."""
     prompt_template = """
     شما یک دستیار هوشمند و مفید هستید. با استفاده از متن زیر به پرسش مطرح‌شده با دقت، شفافیت، و به صورت کامل پاسخ دهید:
     1. پاسخ را **به زبان فارسی** ارائه دهید.
@@ -86,14 +52,17 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
     {additional_note}
     """
     after_rag_prompt = ChatPromptTemplate.from_template(prompt_template)
+
     llm = ChatOpenAI(model="gpt-4o-mini", temperature=0.1, api_key=OPENAI_API_KEY)
 
     def filtered_retriever(query):
         filter_dict = {}
         if categories != ['ALL'] and categories != []:
-            filter_dict["category"] = {"$in": categories}
+            if categories:
+                filter_dict["category"] = {"$in": categories}
         if sub_categories != ['ALL'] and sub_categories != []:
-            filter_dict["year"] = {"$in": sub_categories}
+            if sub_categories:
+                filter_dict["year"] = {"$in": sub_categories}
         
         return vs.get_relevant_documents(
             query,
@@ -114,16 +83,15 @@ def create_chatbot_retrieval_qa(main_query, additional_note, vs, categories, sub
 
     return chain
 
-@st.cache_resource
 def initialize_chatbot(alpha=0.3, top_k=60):
-    """Initialize the chatbot with Pinecone index and embeddings using caching."""
+    """Initialize the chatbot with Pinecone index and embeddings."""
     pc = Pinecone(api_key=PINECONE_API_KEY)
     INDEX_NAME = "persian-new"
 
     embeddings = OpenAIEmbeddings(model="text-embedding-3-small", api_key=OPENAI_API_KEY)
     index = pc.Index(INDEX_NAME)
 
-    bm25_encoder = load_bm25_encoder()
+    bm25_encoder = BM25Encoder().load("full_bm25_values.json")
 
     vectorstore = PineconeHybridSearchRetriever(
         alpha=alpha, 
@@ -135,26 +103,14 @@ def initialize_chatbot(alpha=0.3, top_k=60):
 
     return vectorstore
 
-def get_selected_subfolders(selected_folders):
-    data = load_folder_structure()
-    
-    if not selected_folders:
-        return ['ALL']
-    folder_dict = data[0]
-    subfolder_list = ['ALL']
-    for folder in selected_folders:
-        if folder in folder_dict:
-            subfolder_list.extend(folder_dict[folder])
-    return subfolder_list
-
-# Page configuration
+# Streamlit page configuration
 st.set_page_config(
     page_title="Persian Chatbot",
     page_icon="🤖",
     layout="wide",
 )
 
-# Custom CSS
+# Custom CSS with added loading animation styles
 st.markdown("""
     <style>
         body { direction: rtl; text-align: right;}
@@ -181,6 +137,7 @@ st.markdown("""
             border-radius: 10px;
             margin-bottom: 20px;
         }
+        /* Fix for RTL slider issues */
         .stSlider [data-baseweb="slider"] {
             direction: ltr;
         }
@@ -191,71 +148,96 @@ st.markdown("""
     </style>
 """, unsafe_allow_html=True)
 
+def get_selected_subfolders(selected_folders):
+    with open("folder_structure.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+    
+    if selected_folders==[]:
+        return ['ALL']
+    folder_dict = data[0]
+    subfolder_list = ['ALL']
+    for folder in selected_folders:
+        if folder in folder_dict:
+            subfolder_list.extend(folder_dict[folder])
+      # Add all subfolders to the list
+    return subfolder_list
+
 def main():
     st.markdown("<h1 class='persian-text'>چت‌بات فارسی</h1>", unsafe_allow_html=True)
 
-    # Initialize session state
+    # Initialize session state for loading and search parameters
     if 'processing' not in st.session_state:
         st.session_state.processing = False
     if 'alpha' not in st.session_state:
         st.session_state.alpha = 0.3
     if 'top_k' not in st.session_state:
         st.session_state.top_k = 60
+    if 'vectorstore' not in st.session_state:
+        st.session_state.vectorstore = None
 
     # Predefined categories
-    data = load_folder_structure()
-    cat = list(data[0].keys())
+    with open("folder_structure.json", "r", encoding="utf-8") as file:
+        data = json.load(file)
+    # Extract main folder names
+    cat = list(data[0].keys()) 
 
-    # Search Parameters Section
+    # Search Parameters Section (collapsible)
     with st.expander("تنظیمات جستجو (پیشرفته)", expanded=False):
         st.markdown("<div class='search-params'>", unsafe_allow_html=True)
         
+        # Define callback for alpha slider
+        def on_alpha_change():
+            st.session_state.vectorstore = None
+            
+        # Define callback for top_k slider
+        def on_top_k_change():
+            st.session_state.vectorstore = None
+        
+        # Use two columns with class for better RTL support
         col1, col2 = st.columns(2)
         
         with col1:
             st.markdown('<div class="stSlider">', unsafe_allow_html=True)
-            alpha = st.slider(
+            st.session_state.alpha = st.slider(
                 "نسبت جستجوی هیبریدی (alpha):",
                 min_value=0.0,
                 max_value=1.0,
                 value=st.session_state.alpha,
                 step=0.1,
                 help="مقدار بالاتر به معنای وزن بیشتر برای جستجوی معنایی است. مقدار کمتر وزن بیشتری به جستجوی کلیدواژه می‌دهد.",
-                key="alpha_slider"
+                key="alpha_slider",
+                on_change=on_alpha_change
             )
             st.markdown('</div>', unsafe_allow_html=True)
         
         with col2:
             st.markdown('<div class="stSlider">', unsafe_allow_html=True)
-            top_k = st.slider(
+            st.session_state.top_k = st.slider(
                 "تعداد نتایج (top_k):",
                 min_value=10,
                 max_value=200,
                 value=st.session_state.top_k,
                 step=10,
                 help="تعداد نتایج مرتبطی که از پایگاه داده بازیابی می‌شود.",
-                key="top_k_slider"
+                key="top_k_slider",
+                on_change=on_top_k_change
             )
             st.markdown('</div>', unsafe_allow_html=True)
             
         st.markdown("</div>", unsafe_allow_html=True)
 
-        if alpha != st.session_state.alpha or top_k != st.session_state.top_k:
-            st.session_state.alpha = alpha
-            st.session_state.top_k = top_k
-            # Force recalculation on parameter change
-            st.cache_resource.clear()
-            st.warning("پارامترهای جستجو تغییر کرده‌اند. سیستم بازیابی مجدداً راه‌اندازی خواهد شد.")
-
-    # Initialize vectorstore with caching
-    try:
-        vectorstore = initialize_chatbot(
-            alpha=st.session_state.alpha,
-            top_k=st.session_state.top_k
-        )
-    except Exception as e:
-        st.error(f"خطا در راه‌اندازی chatbot: {e}")
-        return
+    # Initialize chatbot if needed
+    if st.session_state.vectorstore is None:
+        with st.spinner('در حال راه‌اندازی چت‌بات...'):
+            try:
+                st.session_state.vectorstore = initialize_chatbot(
+                    alpha=st.session_state.alpha,
+                    top_k=st.session_state.top_k
+                )
+                st.success(f"پارامترهای جستجو: alpha={st.session_state.alpha}, top_k={st.session_state.top_k}")
+            except Exception as e:
+                st.error(f"خطا در راه‌اندازی chatbot: {e}")
+                return
             
     # Category selections
     categories = st.multiselect(
@@ -265,13 +247,14 @@ def main():
     )
     
     sub_cat = get_selected_subfolders(categories)
+
     sub_categories = st.multiselect(
         "زیر دسته‌بندی را انتخاب کنید:",
         sub_cat,
         default=[]
     )
 
-    # Input fields
+    # Two separate input fields
     main_query = st.text_area(
         "سؤال اصلی خود را اینجا وارد کنید:",
         height=100
@@ -282,8 +265,12 @@ def main():
         height=100
     )
 
+
+
     # Submit button
     if st.button("ارسال"):
+        response_placeholder = st.empty()
+
         if not main_query:
             st.warning("لطفاً سؤال اصلی خود را وارد کنید.")
             return
@@ -295,7 +282,9 @@ def main():
         response_placeholder = st.empty()
 
         try:
+            # Show loading spinner
             with st.spinner('لطفاً صبر کنید...'):
+                # Create progress bar
                 progress_bar = st.progress(0)
                 status_text = st.empty()
 
@@ -307,7 +296,7 @@ def main():
                 chatbot = create_chatbot_retrieval_qa(
                     main_query,
                     additional_note,
-                    vectorstore,
+                    st.session_state.vectorstore,
                     categories,
                     sub_categories
                 )
@@ -327,16 +316,13 @@ def main():
                 progress_bar.progress(100)
                 
                 # Clear progress indicators
-                time.sleep(0.5)
+                time.sleep(0.5)  # Short delay for smooth transition
                 progress_bar.empty()
                 status_text.empty()
 
                 # Display response
                 response_placeholder.markdown("**پاسخ:**")
                 response_placeholder.write(response)
-                
-                # Force garbage collection after processing
-                gc.collect()
 
         except Exception as e:
             st.error(f"خطا در پردازش سوال: {e}")
