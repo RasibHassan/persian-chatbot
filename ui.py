@@ -17,15 +17,18 @@ import os
 import json
 import nltk
 
+
+# Set a persistent directory for NLTK data
 NLTK_DATA_DIR = os.path.join(os.getcwd(), "nltk_data")
 if NLTK_DATA_DIR not in nltk.data.path:
     nltk.data.path.append(NLTK_DATA_DIR)
 
-# Check if 'punkt' is already installed before downloading
-try:
-    nltk.data.find("tokenizers/punkt")
-except LookupError:
-    nltk.download("punkt", download_dir=NLTK_DATA_DIR, quiet=True)# API keys remain the same
+# Check and download necessary NLTK components
+for resource in ["punkt", "punkt_tab"]:
+    try:
+        nltk.data.find(f"tokenizers/{resource}")
+    except LookupError:
+        nltk.download(resource, download_dir=NLTK_DATA_DIR, quiet=True)
 
 # # Get the API keys from environment variables
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
