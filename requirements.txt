@@ -8,4 +8,4 @@ pinecone-text
 huggingface-hub
 rank_bm25
 langchain-pinecone
-nltk>=3.6.0
+nltk
