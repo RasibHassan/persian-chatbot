@@ -1,5 +1,6 @@
 import streamlit as st
 import os
+os.system("pip uninstall -y pinecone-plugin-inference")
 import openai
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
@@ -13,10 +14,8 @@ from langchain_community.retrievers import PineconeHybridSearchRetriever
 from langchain_community.embeddings import HuggingFaceEmbeddings
 import time
 from pinecone_text.sparse import BM25Encoder
-import os
 import json
 import nltk
-os.system("pip uninstall -y pinecone-plugin-inference")
 
 # Set a persistent directory for NLTK data
 NLTK_DATA_DIR = os.path.join(os.getcwd(), "nltk_data")
