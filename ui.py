@@ -16,7 +16,7 @@ from pinecone_text.sparse import BM25Encoder
 import os
 import json
 import nltk
-
+os.system("pip uninstall -y pinecone-plugin-inference")
 
 # Set a persistent directory for NLTK data
 NLTK_DATA_DIR = os.path.join(os.getcwd(), "nltk_data")
