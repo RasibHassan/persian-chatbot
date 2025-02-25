@@ -1,6 +1,6 @@
 import streamlit as st
 import os
-os.system("pip uninstall -y pinecone-plugin-inference")
+os.system("pip install --upgrade pinecone-client")
 import openai
 from langchain.chains import ConversationalRetrievalChain
 from langchain.prompts import PromptTemplate
